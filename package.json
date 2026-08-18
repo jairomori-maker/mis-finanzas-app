@@ -1,0 +1,9 @@
+{
+  "name": "mis-finanzas-app",
+  "version": "1.0.0",
+  "private": true,
+  "description": "App de finanzas personales — PWA local con gastos, ingresos, reportes y conciliación bancaria.",
+  "engines": {
+    "node": ">=18"
+  }
+}
