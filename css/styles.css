@@ -207,6 +207,47 @@ form.manual.open { display: flex; }
 }
 .hint { font-size: 11px; color: var(--ink-soft); line-height: 1.5; margin-top: 4px; }
 
+/* ---- Proyección (Reporte, meses futuros) ---- */
+.proj-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px dotted var(--line);
+}
+.proj-item .lbl { flex: 1; font-size: 13px; display: flex; flex-direction: column; gap: 2px; }
+.proj-item .sub-txt { font-size: 10px; color: var(--ink-soft); text-transform: none; letter-spacing: 0; }
+.proj-item.edited .lbl { color: var(--ink); }
+.edited-tag { color: var(--gold); }
+.projInput {
+  width: 96px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 13px;
+  padding: 7px 8px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink);
+  text-align: right;
+}
+.reset-link {
+  font-size: 10px;
+  color: var(--ink-soft);
+  text-decoration: underline;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  white-space: nowrap;
+}
+
+/* ---- Importar captura (Inicio) ---- */
+.import-row { display: flex; align-items: center; gap: 9px; padding: 8px 0; border-bottom: 1px dotted var(--line); font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; }
+.import-row.dup { opacity: .55; }
+.import-row input[type=checkbox] { width: 15px; height: 15px; flex-shrink: 0; }
+.import-row .info { flex: 1; }
+.import-row .info .amt { font-weight: 700; }
+.import-row .info .meta { display: block; font-size: 9.5px; color: var(--ink-soft); margin-top: 2px; }
+.dup-tag { font-size: 8px; background: var(--red); color: var(--paper); padding: 1px 5px; letter-spacing: .5px; text-transform: uppercase; white-space: nowrap; }
+
 /* ---- navegación inferior de pantallas ---- */
 nav.bottom-nav {
   position: fixed;

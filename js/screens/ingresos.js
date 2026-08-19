@@ -1,16 +1,10 @@
-// screens/ingresos.js — registro de ingresos + balance del mes.
+// screens/ingresos.js — registro de ingresos. El balance del mes vive en Reporte.
 
 (function () {
   function newId() { return Date.now() + Math.random(); }
 
   function template() {
     return `
-      <div class="card" id="balanceRow">
-        <div class="total-row" style="margin-top:0; padding-top:0; border-top:none;"><span>INGRESOS</span><span id="totalIngresos" class="amt">$0.00</span></div>
-        <div class="total-row"><span>GASTOS</span><span id="totalGastosResumen" class="amt">$0.00</span></div>
-        <div class="total-row"><span>BALANCE</span><span id="balanceAmt" class="amt">$0.00</span></div>
-      </div>
-
       <div class="section-label">Mes</div>
       <div class="month-nav">
         <button id="prevMonthI" class="navbtn">‹</button>
@@ -28,6 +22,7 @@
       </form>
 
       <div id="incomeItems"></div>
+      <div class="total-row"><span>INGRESOS</span><span id="totalIngresosMes" class="amt">$0.00</span></div>
     `;
   }
 
@@ -107,14 +102,7 @@
     });
 
     const totalIngresos = monthIncomes.reduce((s, i) => s + Number(i.monto), 0);
-    const monthExpenses = App.expenses.filter((e) => e && Dates.isValidDate(e.fecha) && Dates.monthOf(e.fecha) === App.currentMonth);
-    const totalGastos = monthExpenses.reduce((s, e) => s + Number(e.monto), 0);
-    const balance = totalIngresos - totalGastos;
-    document.getElementById('totalIngresos').textContent = Dates.fmtMoney(totalIngresos);
-    document.getElementById('totalGastosResumen').textContent = Dates.fmtMoney(totalGastos);
-    document.getElementById('balanceAmt').textContent = Dates.fmtMoney(balance);
-    document.getElementById('balanceRow').classList.toggle('negative', balance < 0);
-    document.getElementById('balanceRow').classList.toggle('positive', balance >= 0);
+    document.getElementById('totalIngresosMes').textContent = Dates.fmtMoney(totalIngresos);
   }
 
   function mount(container) {

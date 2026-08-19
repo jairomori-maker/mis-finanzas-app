@@ -46,6 +46,7 @@ const App = {
   budgets: {},
   saldos: [],
   retiros: [],
+  overrides: {}, // "YYYY-MM|categoria" -> monto editado a mano en la Proyección de Reporte
 };
 
 async function loadBudgets() {
@@ -98,6 +99,22 @@ async function generateRecurringIncomes() {
   if (added) await DB.Store.bulkPut('incomes', App.incomes);
 }
 
+async function loadOverrides() {
+  const rows = await DB.Store.getAll('projectionOverrides');
+  App.overrides = {};
+  rows.forEach((r) => { App.overrides[r.id] = r.monto; });
+}
+async function saveProjectionOverride(mes, categoria, monto) {
+  const id = mes + '|' + categoria;
+  App.overrides[id] = monto;
+  await DB.Store.put('projectionOverrides', { id, mes, categoria, monto });
+}
+async function clearProjectionOverride(mes, categoria) {
+  const id = mes + '|' + categoria;
+  delete App.overrides[id];
+  await DB.Store.delete('projectionOverrides', id);
+}
+
 async function loadAll() {
   await DB.openDB();
   await Categories.loadCustomCategories();
@@ -108,6 +125,7 @@ async function loadAll() {
   App.saldos = (await DB.Store.getAll('saldos')).filter((s) => s && isValidDate(s.fecha));
   App.retiros = (await DB.Store.getAll('retiros')).filter((r) => r && isValidDate(r.fecha));
   await loadBudgets();
+  await loadOverrides();
   await generateRecurringExpenses();
   await generateRecurringIncomes();
   emit('data-changed');
@@ -118,3 +136,5 @@ window.Bus = { on, emit };
 window.App = App;
 window.loadAll = loadAll;
 window.saveBudget = saveBudget;
+window.saveProjectionOverride = saveProjectionOverride;
+window.clearProjectionOverride = clearProjectionOverride;

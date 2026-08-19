@@ -2,7 +2,7 @@
 // Todo el dinero de la app vive únicamente en este dispositivo.
 
 const DB_NAME = 'finanzas-personales';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 const STORES = {
   expenses: 'id',
@@ -15,6 +15,9 @@ const STORES = {
   tickets: 'id',
   categoryMap: 'categoria',
   meta: 'key',
+  // projectionOverrides: promedios de la Proyección (Reporte) que el usuario editó a
+  // mano para un mes futuro específico. id = "YYYY-MM|categoria".
+  projectionOverrides: 'id',
 };
 
 let _dbPromise = null;
