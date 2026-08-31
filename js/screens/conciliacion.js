@@ -14,13 +14,16 @@
   function template() {
     return `
       <div class="section-label">Mis tarjetas de crédito</div>
-      <div class="hint">Da de alta cada tarjeta una vez, ligada al banco desde el que la pagas. Verás cuánto llevas acumulado (pendiente de pagar) en cada una.</div>
+      <div class="hint">Da de alta cada tarjeta una vez, ligada al banco desde el que la pagas. Si le agregas su día de corte, la app te dice qué gastos ya quedaron en el corte que está por cerrar y cuáles ya cayeron en el siguiente ciclo.</div>
       <button class="toggle-manual" id="toggleTarjeta">+ agregar una tarjeta →</button>
       <form class="manual" id="tarjetaForm">
         <div class="field"><label>Nombre de la tarjeta</label><input type="text" id="tNombre" placeholder="p. ej. Principal, Gastos domiciliados"></div>
         <div class="field"><label>¿De qué banco se paga?</label>
           <input type="text" id="tBanco" autocomplete="off" placeholder="p. ej. BBVA, Santander…">
           <div class="suggestions" id="tBancoSuggestions"></div>
+        </div>
+        <div class="field"><label>Día de corte <span style="text-transform:none;letter-spacing:0;">(opcional, ej. 20)</span></label>
+          <input type="number" id="tDiaCorte" min="1" max="31" placeholder="1-31">
         </div>
         <button type="submit" class="save-btn gold" id="saveTarjetaBtn">Guardar tarjeta</button>
       </form>
@@ -103,29 +106,43 @@
   function renderTarjetas() {
     const container = document.getElementById('tarjetaItems');
     if (!App.tarjetas.length) { container.innerHTML = '<div class="empty">Aún no has dado de alta ninguna tarjeta.</div>'; return; }
-    container.innerHTML = App.tarjetas.map((t) => `
-      <div class="line-item">
-        <div class="desc">${t.nombre}<span class="cat">Se paga desde: ${t.bancoPago || 'sin banco asignado'}</span></div>
-        <div class="amt">${Dates.fmtMoney(Tarjetas.pendienteTarjeta(t.id))} pendiente</div>
-        <div class="actions">
-          <button class="icon-btn edit" data-id="${t.id}" title="Cambiar banco de pago">✎</button>
-          <button class="icon-btn del" data-id="${t.id}" title="Eliminar">✕</button>
+    container.innerHTML = App.tarjetas.map((t) => {
+      const resumen = t.diaCorte ? Tarjetas.resumenCorte(t.id) : null;
+      const desglose = resumen ? `
+        <div class="recon-detail"><span>En el corte que cierra el ${resumen.cierreActual}</span><span>${Dates.fmtMoney(resumen.enCorteActual)}</span></div>
+        <div class="recon-detail"><span>Ya en el siguiente corte</span><span>${Dates.fmtMoney(resumen.enProximoCorte)}</span></div>
+        ${resumen.vencidoSinPagar > 0.01 ? `<div class="recon-detail" style="color:var(--red);"><span>De un corte ya cerrado, sin pagar</span><span>${Dates.fmtMoney(resumen.vencidoSinPagar)}</span></div>` : ''}
+      ` : '';
+      return `
+        <div class="recon-row">
+          <div class="recon-header"><span>${t.nombre}</span><span>${Dates.fmtMoney(Tarjetas.pendienteTarjeta(t.id))} pendiente</span></div>
+          <div class="recon-detail"><span>Se paga desde</span><span>${t.bancoPago || 'sin banco asignado'}</span></div>
+          <div class="recon-detail"><span>Día de corte</span><span>${t.diaCorte ? 'día ' + t.diaCorte : 'sin configurar'}</span></div>
+          ${desglose}
+          <div style="display:flex; gap:14px; margin-top:8px; font-family:'IBM Plex Mono',monospace; font-size:11px; text-transform:uppercase; letter-spacing:.5px;">
+            <a href="#" class="edit-tarjeta" data-id="${t.id}" style="color:var(--ink-soft);">editar</a>
+            <a href="#" class="del-tarjeta" data-id="${t.id}" style="color:var(--red);">eliminar</a>
+          </div>
         </div>
-      </div>
-    `).join('');
-    container.querySelectorAll('.edit').forEach((b) => {
-      b.onclick = async () => {
-        const id = parseFloat(b.dataset.id);
+      `;
+    }).join('');
+    container.querySelectorAll('.edit-tarjeta').forEach((a) => {
+      a.onclick = async (ev) => {
+        ev.preventDefault();
+        const id = parseFloat(a.dataset.id);
         const t = App.tarjetas.find((x) => x.id === id);
-        const nuevo = prompt('¿Desde qué banco se paga esta tarjeta ahora?', t.bancoPago || '');
-        if (nuevo === null) return;
-        await Tarjetas.updateTarjetaBanco(id, nuevo);
+        if (!t) return;
+        const nuevoBanco = prompt('¿Desde qué banco se paga esta tarjeta?', t.bancoPago || '');
+        if (nuevoBanco !== null) await Tarjetas.updateTarjetaBanco(id, nuevoBanco);
+        const nuevoCorte = prompt('¿Qué día del mes es el corte de esta tarjeta? (1-31, déjalo vacío si no lo sabes)', t.diaCorte || '');
+        if (nuevoCorte !== null) await Tarjetas.updateTarjetaDiaCorte(id, nuevoCorte);
         renderAll();
       };
     });
-    container.querySelectorAll('.del').forEach((b) => {
-      b.onclick = async () => {
-        const id = parseFloat(b.dataset.id);
+    container.querySelectorAll('.del-tarjeta').forEach((a) => {
+      a.onclick = async (ev) => {
+        ev.preventDefault();
+        const id = parseFloat(a.dataset.id);
         if (!confirm('¿Eliminar esta tarjeta? Los gastos y pagos ya registrados con ella no se borran, solo dejará de aparecer en la lista.')) return;
         App.tarjetas = App.tarjetas.filter((x) => x.id !== id);
         await DB.Store.delete('tarjetas', id);
@@ -271,9 +288,10 @@
       e.preventDefault();
       const nombre = document.getElementById('tNombre').value.trim();
       if (!nombre) { alert('Ponle un nombre a la tarjeta.'); return; }
-      await Tarjetas.addTarjeta(nombre, document.getElementById('tBanco').value.trim());
+      await Tarjetas.addTarjeta(nombre, document.getElementById('tBanco').value.trim(), document.getElementById('tDiaCorte').value);
       document.getElementById('tNombre').value = '';
       document.getElementById('tBanco').value = '';
+      document.getElementById('tDiaCorte').value = '';
       renderAll();
     };
 

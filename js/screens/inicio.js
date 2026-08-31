@@ -64,6 +64,7 @@
               <input type="text" id="mNuevaTarjetaBanco" autocomplete="off" placeholder="¿De qué banco se paga?">
               <div class="suggestions" id="nuevaTarjetaBancoSuggestions"></div>
             </div>
+            <input type="number" id="mNuevaTarjetaDiaCorte" min="1" max="31" placeholder="Día de corte (opcional, ej. 20)">
             <button type="button" class="save-btn" id="mNuevaTarjetaGuardar" style="padding:8px;">Guardar tarjeta</button>
           </div>
         </div>
@@ -275,9 +276,10 @@
     document.getElementById('mNuevaTarjetaGuardar').onclick = async () => {
       const nombre = document.getElementById('mNuevaTarjetaNombre').value.trim();
       if (!nombre) { setStatus('Ponle un nombre a la tarjeta antes de guardar.', 'err'); return; }
-      const t = await Tarjetas.addTarjeta(nombre, mNuevaTarjetaBanco.value.trim());
+      const t = await Tarjetas.addTarjeta(nombre, mNuevaTarjetaBanco.value.trim(), document.getElementById('mNuevaTarjetaDiaCorte').value);
       document.getElementById('mNuevaTarjetaNombre').value = '';
       mNuevaTarjetaBanco.value = '';
+      document.getElementById('mNuevaTarjetaDiaCorte').value = '';
       document.getElementById('mNuevaTarjetaFields').style.display = 'none';
       populateTarjetaSelect(t.id);
       setStatus('Tarjeta guardada ✓', 'ok');
