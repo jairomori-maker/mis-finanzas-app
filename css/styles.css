@@ -126,6 +126,8 @@ form.manual.open { display: flex; }
 .suggestions.open { display: block; }
 .suggestions div { padding: 8px 10px; font-family: 'IBM Plex Mono', monospace; font-size: 13px; cursor: pointer; }
 .suggestions div:hover, .suggestions div.active { background: var(--paper-dark); }
+.subfield { position: relative; }
+.inline-add-form { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
 
 .toggle-manual {
   background: none; border: none; text-decoration: underline;

@@ -43,7 +43,29 @@
         </div>
         <div class="field"><label>Fecha</label><input type="date" id="mFecha"></div>
         <div class="field"><label>Medio de pago</label>
-          <select id="mMedioPago"><option value="banco">Banco (tarjeta/transferencia)</option><option value="efectivo">Efectivo</option></select>
+          <select id="mMedioPago">
+            <option value="banco">Banco (débito/transferencia)</option>
+            <option value="tarjeta_credito">Tarjeta de crédito</option>
+            <option value="efectivo">Efectivo</option>
+          </select>
+        </div>
+        <div class="field" id="mBancoField">
+          <label>Banco <span style="text-transform:none;letter-spacing:0;">(opcional, para conciliar)</span></label>
+          <input type="text" id="mBanco" autocomplete="off" placeholder="p. ej. BBVA, Santander…">
+          <div class="suggestions" id="bancoSuggestions"></div>
+        </div>
+        <div class="field" id="mTarjetaField" style="display:none;">
+          <label>Tarjeta de crédito</label>
+          <select id="mTarjeta"></select>
+          <button type="button" class="toggle-manual" id="mNuevaTarjetaBtn" style="text-align:left; padding-left:0;">+ agregar una tarjeta nueva →</button>
+          <div id="mNuevaTarjetaFields" style="display:none;" class="inline-add-form">
+            <input type="text" id="mNuevaTarjetaNombre" placeholder="Nombre de la tarjeta (ej. Principal)">
+            <div class="subfield">
+              <input type="text" id="mNuevaTarjetaBanco" autocomplete="off" placeholder="¿De qué banco se paga?">
+              <div class="suggestions" id="nuevaTarjetaBancoSuggestions"></div>
+            </div>
+            <button type="button" class="save-btn" id="mNuevaTarjetaGuardar" style="padding:8px;">Guardar tarjeta</button>
+          </div>
         </div>
         <div class="field checkbox-field"><label><input type="checkbox" id="mRecurrente"> Es un gasto fijo (se repite cada mes)</label></div>
         <div class="field checkbox-field"><label><input type="checkbox" id="mMSI"> Es una compra a meses sin intereses (MSI)</label></div>
@@ -89,6 +111,10 @@
     document.getElementById('msiFields').style.display = 'none';
     document.getElementById('mMontoLabel').textContent = 'Monto';
     document.getElementById('mMedioPago').value = 'banco';
+    document.getElementById('mBanco').value = '';
+    document.getElementById('mTarjeta').value = '';
+    document.getElementById('mNuevaTarjetaFields').style.display = 'none';
+    toggleMedioPagoFields();
     pendingTicketId = null;
   }
 
@@ -107,7 +133,10 @@
     document.getElementById('mConcepto').value = exp.concepto;
     document.getElementById('mCategoria').value = exp.categoria;
     document.getElementById('mFecha').value = exp.fecha;
-    document.getElementById('mMedioPago').value = exp.medioPago === 'efectivo' ? 'efectivo' : 'banco';
+    document.getElementById('mMedioPago').value = exp.medioPago === 'efectivo' ? 'efectivo' : (exp.medioPago === 'tarjeta_credito' ? 'tarjeta_credito' : 'banco');
+    document.getElementById('mBanco').value = exp.banco || '';
+    toggleMedioPagoFields();
+    if (exp.medioPago === 'tarjeta_credito') populateTarjetaSelect(exp.tarjetaId);
     document.getElementById('mRecurrente').checked = false;
     document.getElementById('mMSI').checked = false;
     document.getElementById('msiFields').style.display = 'none';
@@ -129,6 +158,23 @@
     }).catch(() => {});
   }
 
+  function toggleMedioPagoFields() {
+    const val = document.getElementById('mMedioPago').value;
+    document.getElementById('mBancoField').style.display = val === 'banco' ? 'flex' : 'none';
+    document.getElementById('mTarjetaField').style.display = val === 'tarjeta_credito' ? 'flex' : 'none';
+    if (val === 'tarjeta_credito') populateTarjetaSelect();
+  }
+
+  function populateTarjetaSelect(selectedId) {
+    const sel = document.getElementById('mTarjeta');
+    if (!App.tarjetas.length) {
+      sel.innerHTML = '<option value="">— agrega una tarjeta primero —</option>';
+      return;
+    }
+    sel.innerHTML = App.tarjetas.map((t) => `<option value="${t.id}">${t.nombre}</option>`).join('');
+    if (selectedId) sel.value = selectedId;
+  }
+
   async function addExpense(exp) {
     const id = exp.id || newId();
     const clean = {
@@ -141,7 +187,9 @@
       recurrenteId: exp.recurrenteId || null,
       msiGroupId: exp.msiGroupId || null,
       hasFoto: exp.hasFoto || false,
-      medioPago: exp.medioPago === 'efectivo' ? 'efectivo' : 'banco',
+      medioPago: exp.medioPago === 'tarjeta_credito' ? 'tarjeta_credito' : (exp.medioPago === 'efectivo' ? 'efectivo' : 'banco'),
+      banco: exp.banco || null,
+      tarjetaId: exp.tarjetaId || null,
     };
     App.expenses.unshift(clean);
     await DB.Store.put('expenses', clean);
@@ -168,8 +216,8 @@
     }
   }
 
-  function renderSuggestions(list, onPick) {
-    const box = document.getElementById('categoriaSuggestions');
+  function renderSuggestions(containerId, list, onPick) {
+    const box = document.getElementById(containerId);
     if (!list.length) { box.classList.remove('open'); box.innerHTML = ''; return; }
     box.innerHTML = list.map((c) => `<div data-val="${c}">${c}</div>`).join('');
     box.classList.add('open');
@@ -189,20 +237,51 @@
     });
     mCategoria.addEventListener('input', () => {
       mCategoria.dataset.editedByUser = mCategoria.value ? '1' : '';
-      renderSuggestions(Categories.suggestCategorias(mCategoria.value), (val) => {
+      renderSuggestions('categoriaSuggestions', Categories.suggestCategorias(mCategoria.value), (val) => {
         mCategoria.value = val;
         mCategoria.dataset.editedByUser = '1';
       });
     });
     mCategoria.addEventListener('focus', () => {
-      renderSuggestions(Categories.suggestCategorias(mCategoria.value), (val) => {
+      renderSuggestions('categoriaSuggestions', Categories.suggestCategorias(mCategoria.value), (val) => {
         mCategoria.value = val;
         mCategoria.dataset.editedByUser = '1';
       });
     });
-    document.addEventListener('click', (e) => {
-      if (!e.target.closest('.field')) document.getElementById('categoriaSuggestions').classList.remove('open');
+
+    const mBanco = document.getElementById('mBanco');
+    mBanco.addEventListener('input', () => {
+      renderSuggestions('bancoSuggestions', Banks.suggestBanks(mBanco.value), (val) => { mBanco.value = val; });
     });
+    mBanco.addEventListener('focus', () => {
+      renderSuggestions('bancoSuggestions', Banks.suggestBanks(mBanco.value), (val) => { mBanco.value = val; });
+    });
+
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('.field')) {
+        document.querySelectorAll('.suggestions.open').forEach((el) => el.classList.remove('open'));
+      }
+    });
+
+    document.getElementById('mMedioPago').addEventListener('change', toggleMedioPagoFields);
+    document.getElementById('mNuevaTarjetaBtn').onclick = () => {
+      const box = document.getElementById('mNuevaTarjetaFields');
+      box.style.display = box.style.display === 'none' ? 'flex' : 'none';
+    };
+    const mNuevaTarjetaBanco = document.getElementById('mNuevaTarjetaBanco');
+    mNuevaTarjetaBanco.addEventListener('input', () => {
+      renderSuggestions('nuevaTarjetaBancoSuggestions', Banks.suggestBanks(mNuevaTarjetaBanco.value), (val) => { mNuevaTarjetaBanco.value = val; });
+    });
+    document.getElementById('mNuevaTarjetaGuardar').onclick = async () => {
+      const nombre = document.getElementById('mNuevaTarjetaNombre').value.trim();
+      if (!nombre) { setStatus('Ponle un nombre a la tarjeta antes de guardar.', 'err'); return; }
+      const t = await Tarjetas.addTarjeta(nombre, mNuevaTarjetaBanco.value.trim());
+      document.getElementById('mNuevaTarjetaNombre').value = '';
+      mNuevaTarjetaBanco.value = '';
+      document.getElementById('mNuevaTarjetaFields').style.display = 'none';
+      populateTarjetaSelect(t.id);
+      setStatus('Tarjeta guardada ✓', 'ok');
+    };
 
     document.getElementById('mMSI').addEventListener('change', (e) => {
       msiEnabled = e.target.checked;
@@ -234,12 +313,24 @@
         const grupo = Categories.quickGroup(categoria) || 'Otros';
         const concepto = mConcepto.value || 'Gasto sin descripción';
         const fecha = document.getElementById('mFecha').value || Dates.todayISO();
-        const medioPago = document.getElementById('mMedioPago').value === 'efectivo' ? 'efectivo' : 'banco';
+        const medioPagoRaw = document.getElementById('mMedioPago').value;
+        const medioPago = medioPagoRaw === 'tarjeta_credito' ? 'tarjeta_credito' : (medioPagoRaw === 'efectivo' ? 'efectivo' : 'banco');
+        let banco = null;
+        let tarjetaId = null;
+        if (medioPago === 'banco') {
+          banco = document.getElementById('mBanco').value.trim() || null;
+          if (banco) await Banks.registerBank(banco);
+        } else if (medioPago === 'tarjeta_credito') {
+          const tSel = document.getElementById('mTarjeta').value;
+          if (!tSel) { setStatus('Selecciona con qué tarjeta pagaste (o agrega una nueva primero).', 'err'); return; }
+          tarjetaId = parseFloat(tSel);
+        }
 
         if (editingId) {
           const exp = App.expenses.find((x) => x.id === editingId);
           if (exp) {
-            exp.monto = monto; exp.concepto = concepto; exp.categoria = categoria; exp.grupo = grupo; exp.fecha = fecha; exp.medioPago = medioPago;
+            exp.monto = monto; exp.concepto = concepto; exp.categoria = categoria; exp.grupo = grupo; exp.fecha = fecha;
+            exp.medioPago = medioPago; exp.banco = banco; exp.tarjetaId = tarjetaId;
             await DB.Store.put('expenses', exp);
             refineGroupInBackground(editingId, categoria);
           }
@@ -253,7 +344,7 @@
         if (document.getElementById('mMSI').checked) {
           const meses = parseInt(document.getElementById('mMSIMeses').value, 10);
           if (!meses || meses < 2) { setStatus('Indica en cuántos meses (mínimo 2) es la compra MSI.', 'err'); return; }
-          await saveMSI({ concepto, categoria, grupo, fecha, medioPago }, monto, meses);
+          await saveMSI({ concepto, categoria, grupo, fecha, medioPago, banco, tarjetaId }, monto, meses);
           refineGroupInBackground(newId(), categoria); // por si la categoría es nueva
           resetForm();
           renderList();
@@ -262,10 +353,10 @@
         }
 
         if (document.getElementById('mRecurrente').checked) {
-          const template = { id: newId(), monto, concepto, categoria, grupo, medioPago };
+          const template = { id: newId(), monto, concepto, categoria, grupo, medioPago, banco, tarjetaId };
           App.templates.push(template);
           await DB.Store.put('templates', template);
-          const id = await addExpense({ monto, concepto, categoria, grupo, fecha, medioPago, recurrenteId: template.id });
+          const id = await addExpense({ monto, concepto, categoria, grupo, fecha, medioPago, banco, tarjetaId, recurrenteId: template.id });
           if (pendingTicketId) await moveTicket(pendingTicketId, id);
           refineGroupInBackground(id, categoria);
           resetForm();
@@ -274,7 +365,7 @@
           return;
         }
 
-        const id = await addExpense({ monto, concepto, categoria, grupo, fecha, medioPago, hasFoto: !!pendingTicketId });
+        const id = await addExpense({ monto, concepto, categoria, grupo, fecha, medioPago, banco, tarjetaId, hasFoto: !!pendingTicketId });
         if (pendingTicketId) await moveTicket(pendingTicketId, id);
         refineGroupInBackground(id, categoria);
         resetForm();
@@ -526,7 +617,7 @@
 
     container.innerHTML = monthExpenses.length ? monthExpenses.map((e) => `
       <div class="line-item">
-        <div class="desc">${e.recurrenteId ? '🔁 ' : ''}${e.msiGroupId ? '💳 ' : ''}${e.medioPago === 'efectivo' ? '💵 ' : ''}${e.concepto}<span class="cat">${e.grupo || 'Otros'} → ${e.categoria} · ${e.fecha}</span></div>
+        <div class="desc">${e.recurrenteId ? '🔁 ' : ''}${e.msiGroupId ? '💳 ' : ''}${e.medioPago === 'efectivo' ? '💵 ' : ''}${e.concepto}<span class="cat">${e.grupo || 'Otros'} → ${e.categoria} · ${e.fecha}${e.medioPago === 'tarjeta_credito' ? ' · ' + (Tarjetas.tarjetaNombre(e.tarjetaId) || 'tarjeta') : ''}${e.medioPago === 'banco' && e.banco ? ' · ' + e.banco : ''}</span></div>
         <div class="amt">${Dates.fmtMoney(e.monto)}</div>
         <div class="actions">
           ${e.hasFoto ? `<button class="icon-btn foto" data-id="${e.id}" title="Ver ticket">📷</button>` : ''}
@@ -574,6 +665,7 @@
     root = container;
     root.innerHTML = template();
     document.getElementById('mFecha').value = Dates.todayISO();
+    toggleMedioPagoFields();
     wireForm();
     wireCapture();
     wireImport();

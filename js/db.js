@@ -2,7 +2,7 @@
 // Todo el dinero de la app vive únicamente en este dispositivo.
 
 const DB_NAME = 'finanzas-personales';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 const STORES = {
   expenses: 'id',
@@ -18,6 +18,12 @@ const STORES = {
   // projectionOverrides: promedios de la Proyección (Reporte) que el usuario editó a
   // mano para un mes futuro específico. id = "YYYY-MM|categoria".
   projectionOverrides: 'id',
+  // bankCatalog: catálogo de nombres de banco, se construye solo (igual que categorías).
+  bankCatalog: 'nombre',
+  // tarjetas: catálogo de tarjetas de crédito, cada una ligada al banco desde el que se paga.
+  tarjetas: 'id',
+  // pagosTarjeta: el movimiento real que sí resta del saldo bancario (pago de corte).
+  pagosTarjeta: 'id',
 };
 
 let _dbPromise = null;

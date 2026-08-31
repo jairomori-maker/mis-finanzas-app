@@ -76,12 +76,13 @@
   }
 
   async function exportData() {
-    const [expenses, incomes, templates, incomeTemplates, budgets, saldos, retiros, tickets, categoryMap] = await Promise.all([
+    const [expenses, incomes, templates, incomeTemplates, budgets, saldos, retiros, tickets, categoryMap, bankCatalog, tarjetas, pagosTarjeta] = await Promise.all([
       DB.Store.getAll('expenses'), DB.Store.getAll('incomes'), DB.Store.getAll('templates'),
       DB.Store.getAll('incomeTemplates'), DB.Store.getAll('budgets'), DB.Store.getAll('saldos'),
       DB.Store.getAll('retiros'), DB.Store.getAll('tickets'), DB.Store.getAll('categoryMap'),
+      DB.Store.getAll('bankCatalog'), DB.Store.getAll('tarjetas'), DB.Store.getAll('pagosTarjeta'),
     ]);
-    const payload = { version: 1, exportedAt: new Date().toISOString(), expenses, incomes, templates, incomeTemplates, budgets, saldos, retiros, tickets, categoryMap };
+    const payload = { version: 1, exportedAt: new Date().toISOString(), expenses, incomes, templates, incomeTemplates, budgets, saldos, retiros, tickets, categoryMap, bankCatalog, tarjetas, pagosTarjeta };
     const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -97,7 +98,7 @@
     const text = await file.text();
     const payload = JSON.parse(text);
     if (!payload || payload.version !== 1) throw new Error('Archivo de respaldo no reconocido');
-    const stores = ['expenses', 'incomes', 'templates', 'incomeTemplates', 'budgets', 'saldos', 'retiros', 'tickets', 'categoryMap'];
+    const stores = ['expenses', 'incomes', 'templates', 'incomeTemplates', 'budgets', 'saldos', 'retiros', 'tickets', 'categoryMap', 'bankCatalog', 'tarjetas', 'pagosTarjeta'];
     for (const s of stores) {
       if (Array.isArray(payload[s]) && payload[s].length) await DB.Store.bulkPut(s, payload[s]);
     }

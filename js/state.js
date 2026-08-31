@@ -47,6 +47,8 @@ const App = {
   saldos: [],
   retiros: [],
   overrides: {}, // "YYYY-MM|categoria" -> monto editado a mano en la Proyección de Reporte
+  tarjetas: [],
+  pagosTarjeta: [],
 };
 
 async function loadBudgets() {
@@ -78,7 +80,9 @@ async function generateRecurringExpenses() {
         grupo: t.grupo,
         fecha: todayISO(),
         recurrenteId: t.id,
-        medioPago: t.medioPago === 'efectivo' ? 'efectivo' : 'banco',
+        medioPago: t.medioPago === 'tarjeta_credito' ? 'tarjeta_credito' : (t.medioPago === 'efectivo' ? 'efectivo' : 'banco'),
+        banco: t.banco || null,
+        tarjetaId: t.tarjetaId || null,
       });
       added = true;
     }
@@ -92,7 +96,7 @@ async function generateRecurringIncomes() {
   for (const t of App.incomeTemplates) {
     const exists = App.incomes.some((i) => i.recurrenteId === t.id && isValidDate(i.fecha) && monthOf(i.fecha) === thisMonth);
     if (!exists) {
-      App.incomes.unshift({ id: Date.now() + Math.random(), monto: Number(t.monto) || 0, concepto: t.concepto, fecha: todayISO(), recurrenteId: t.id });
+      App.incomes.unshift({ id: Date.now() + Math.random(), monto: Number(t.monto) || 0, concepto: t.concepto, fecha: todayISO(), recurrenteId: t.id, banco: t.banco || null });
       added = true;
     }
   }
@@ -115,15 +119,35 @@ async function clearProjectionOverride(mes, categoria) {
   await DB.Store.delete('projectionOverrides', id);
 }
 
+// Los saldos/retiros guardados antes de la funcionalidad de bancos no tienen campo
+// `banco`. Se les asigna el primer banco del catálogo (o "Principal" si no hay ninguno)
+// para no perder el historial de conciliación ya construido.
+async function migrateBankField() {
+  const existing = App.saldos.some((s) => s.banco) || App.retiros.some((r) => r.banco);
+  const defaultBank = Banks.allBankNames()[0] || 'Principal';
+  let changed = false;
+  for (const s of App.saldos) {
+    if (!s.banco) { s.banco = defaultBank; changed = true; await DB.Store.put('saldos', s); }
+  }
+  for (const r of App.retiros) {
+    if (!r.banco) { r.banco = defaultBank; changed = true; await DB.Store.put('retiros', r); }
+  }
+  if (changed && !existing) await Banks.registerBank(defaultBank);
+}
+
 async function loadAll() {
   await DB.openDB();
   await Categories.loadCustomCategories();
+  await Banks.loadBankCatalog();
   App.expenses = (await DB.Store.getAll('expenses')).filter((e) => e && isValidDate(e.fecha));
   App.incomes = (await DB.Store.getAll('incomes')).filter((i) => i && isValidDate(i.fecha));
   App.templates = await DB.Store.getAll('templates');
   App.incomeTemplates = await DB.Store.getAll('incomeTemplates');
   App.saldos = (await DB.Store.getAll('saldos')).filter((s) => s && isValidDate(s.fecha));
   App.retiros = (await DB.Store.getAll('retiros')).filter((r) => r && isValidDate(r.fecha));
+  App.tarjetas = await DB.Store.getAll('tarjetas');
+  App.pagosTarjeta = (await DB.Store.getAll('pagosTarjeta')).filter((p) => p && isValidDate(p.fecha));
+  await migrateBankField();
   await loadBudgets();
   await loadOverrides();
   await generateRecurringExpenses();

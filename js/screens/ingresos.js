@@ -16,6 +16,10 @@
       <form class="manual" id="ingresoForm">
         <div class="field"><label>Monto del ingreso</label><input type="number" step="0.01" id="iMonto" placeholder="0.00" inputmode="decimal"></div>
         <div class="field"><label>Concepto</label><input type="text" id="iConcepto" placeholder="p. ej. Nómina, Venta, Bono…"></div>
+        <div class="field"><label>Banco <span style="text-transform:none;letter-spacing:0;">(opcional, para conciliar por cuenta)</span></label>
+          <input type="text" id="iBanco" autocomplete="off" placeholder="p. ej. BBVA, Santander…">
+          <div class="suggestions" id="iBancoSuggestions"></div>
+        </div>
         <div class="field"><label>Fecha</label><input type="date" id="iFecha"></div>
         <div class="field checkbox-field"><label><input type="checkbox" id="iRecurrente"> Es un ingreso fijo (se repite cada mes)</label></div>
         <button type="submit" class="save-btn green" id="saveIngresoBtn">Guardar ingreso</button>
@@ -34,7 +38,7 @@
 
   async function addIncome(inc) {
     const id = newId();
-    const clean = { id, monto: Number(inc.monto) || 0, concepto: inc.concepto || 'Ingreso', fecha: Dates.isValidDate(inc.fecha) ? inc.fecha : Dates.todayISO(), recurrenteId: inc.recurrenteId || null };
+    const clean = { id, monto: Number(inc.monto) || 0, concepto: inc.concepto || 'Ingreso', fecha: Dates.isValidDate(inc.fecha) ? inc.fecha : Dates.todayISO(), recurrenteId: inc.recurrenteId || null, banco: inc.banco || null };
     App.incomes.unshift(clean);
     await DB.Store.put('incomes', clean);
     return id;
@@ -42,6 +46,22 @@
 
   function wireForm() {
     document.getElementById('toggleIngreso').onclick = () => document.getElementById('ingresoForm').classList.toggle('open');
+
+    const iBanco = document.getElementById('iBanco');
+    function renderBankSuggestions() {
+      const box = document.getElementById('iBancoSuggestions');
+      const list = Banks.suggestBanks(iBanco.value);
+      if (!list.length) { box.classList.remove('open'); box.innerHTML = ''; return; }
+      box.innerHTML = list.map((c) => `<div data-val="${c}">${c}</div>`).join('');
+      box.classList.add('open');
+      box.querySelectorAll('div').forEach((d) => { d.onclick = () => { iBanco.value = d.dataset.val; box.classList.remove('open'); }; });
+    }
+    iBanco.addEventListener('input', renderBankSuggestions);
+    iBanco.addEventListener('focus', renderBankSuggestions);
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('.field')) document.getElementById('iBancoSuggestions').classList.remove('open');
+    });
+
     document.getElementById('ingresoForm').onsubmit = async (e) => {
       e.preventDefault();
       const montoRaw = document.getElementById('iMonto').value;
@@ -49,18 +69,21 @@
       if (!montoRaw || isNaN(monto) || monto <= 0) { alert('Ingresa un monto válido para el ingreso.'); return; }
       const concepto = document.getElementById('iConcepto').value || 'Ingreso';
       const fecha = document.getElementById('iFecha').value || Dates.todayISO();
+      const banco = iBanco.value.trim() || null;
+      if (banco) await Banks.registerBank(banco);
       if (document.getElementById('iRecurrente').checked) {
-        const t = { id: newId(), monto, concepto };
+        const t = { id: newId(), monto, concepto, banco };
         App.incomeTemplates.push(t);
         await DB.Store.put('incomeTemplates', t);
-        await addIncome({ monto, concepto, fecha, recurrenteId: t.id });
+        await addIncome({ monto, concepto, fecha, recurrenteId: t.id, banco });
       } else {
-        await addIncome({ monto, concepto, fecha });
+        await addIncome({ monto, concepto, fecha, banco });
       }
       document.getElementById('iMonto').value = '';
       document.getElementById('iConcepto').value = '';
       document.getElementById('iFecha').value = Dates.todayISO();
       document.getElementById('iRecurrente').checked = false;
+      iBanco.value = '';
       render();
     };
   }
@@ -78,7 +101,7 @@
     const container = document.getElementById('incomeItems');
     container.innerHTML = monthIncomes.length ? monthIncomes.map((i) => `
       <div class="line-item">
-        <div class="desc">${i.recurrenteId ? '🔁 ' : ''}${i.concepto}<span class="cat">${i.fecha}</span></div>
+        <div class="desc">${i.recurrenteId ? '🔁 ' : ''}${i.concepto}<span class="cat">${i.fecha}${i.banco ? ' · ' + i.banco : ''}</span></div>
         <div class="amt">${Dates.fmtMoney(i.monto)}</div>
         <div class="actions"><button class="icon-btn del" data-id="${i.id}" title="Eliminar">✕</button></div>
       </div>
