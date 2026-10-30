@@ -8,7 +8,7 @@
 // cada vez que hay internet se trae siempre lo más reciente (y se actualiza la
 // copia guardada de paso); la copia guardada solo se usa si no hay conexión.
 
-const CACHE_VERSION = 'mis-finanzas-v2';
+const CACHE_VERSION = 'mis-finanzas-v3';
 const APP_SHELL = [
   './',
   './index.html',
@@ -16,10 +16,14 @@ const APP_SHELL = [
   './css/styles.css',
   './js/db.js',
   './js/categories.js',
+  './js/banks.js',
   './js/ai.js',
   './js/state.js',
+  './js/tarjetas.js',
+  './js/payfields.js',
   './js/router.js',
   './js/app.js',
+  './js/screens/detalle.js',
   './js/screens/inicio.js',
   './js/screens/ingresos.js',
   './js/screens/reporte.js',

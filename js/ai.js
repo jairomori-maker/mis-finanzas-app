@@ -60,11 +60,11 @@ async function parsearDictado(texto, fechaHoy) {
 // renglones { monto, fecha, concepto }. La categoría/grupo de cada renglón se
 // resuelve después, del lado del cliente (ver inicio.js), para no depender de que
 // la visión adivine categorías específicas por renglón.
-async function importarCaptura(dataUrl) {
+async function importarCaptura(dataUrl, tipo) {
   const res = await fetch('/api/importar-captura', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ imagen: dataUrl }),
+    body: JSON.stringify({ imagen: dataUrl, tipo: tipo === 'ingreso' ? 'ingreso' : 'gasto' }),
   });
   if (!res.ok) {
     const text = await res.text().catch(() => '');

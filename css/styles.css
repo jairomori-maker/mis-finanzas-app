@@ -297,3 +297,40 @@ nav.bottom-nav button.active svg { stroke: var(--gold); }
   cursor: pointer;
 }
 .install-banner.show { display: block; }
+
+/* ---- Renglones tocables (Inicio / Ingresos): al tocar abre el detalle ---- */
+.line-item.tappable { cursor: pointer; }
+.line-item.tappable:active { background: rgba(0,0,0,.04); }
+.line-item .desc .dt { display: block; font-size: 10px; color: var(--ink-soft); letter-spacing: 1px; }
+.line-item.tappable .amt::after { content: ' ›'; color: var(--ink-soft); font-weight: 400; }
+
+/* ---- Pantalla de detalle de gasto/ingreso ---- */
+#detailView { display: none; flex: 1; padding: 14px 20px 30px; }
+body.detail-open #detailView { display: block; }
+body.detail-open main, body.detail-open nav.bottom-nav { display: none; }
+.detail-head { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; }
+.detail-title { font-family: 'IBM Plex Mono', monospace; font-size: 12px; letter-spacing: 2px; text-transform: uppercase; color: var(--ink-soft); }
+.detail-form { display: flex; flex-direction: column; gap: 12px; margin-top: 14px; }
+.detail-form .status { margin-top: 0; text-align: left; }
+
+.toast {
+  position: fixed; left: 50%; bottom: calc(86px + var(--safe-bottom)); transform: translateX(-50%) translateY(10px);
+  background: var(--ink); color: var(--paper); font-family: 'IBM Plex Mono', monospace; font-size: 12px;
+  padding: 10px 16px; opacity: 0; pointer-events: none; transition: opacity .2s ease, transform .2s ease; z-index: 60; max-width: 90vw; text-align: center;
+}
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* ---- Importar captura: preparación y edición por renglón ---- */
+.import-setup { display: flex; flex-direction: column; gap: 10px; }
+.import-item { border-bottom: 1px dotted var(--line); }
+.import-item .import-row { border-bottom: none; }
+.import-row .info .titulo { font-weight: 600; }
+.import-row button.icon-btn { border: none; background: none; color: var(--ink-soft); cursor: pointer; font-size: 15px; padding: 4px 6px; }
+.import-edit { display: flex; flex-direction: column; gap: 10px; padding: 4px 0 14px 24px; }
+.import-summary { font-size: 11px; color: var(--ink-soft); margin: 2px 0 6px; line-height: 1.5; }
+
+/* En los renglones tocables el texto puede bajar de línea en vez de cortarse. */
+.line-item.tappable { align-items: flex-start; }
+.line-item.tappable .desc { white-space: normal; overflow: visible; word-break: break-word; }
+.line-item.tappable .desc .cat { line-height: 1.5; }
+.line-item.tappable .amt, .line-item.tappable .actions { padding-top: 12px; }

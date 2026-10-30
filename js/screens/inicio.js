@@ -2,7 +2,7 @@
 
 (function () {
   let root;
-  let editingId = null;
+  const $ = (id) => document.getElementById(id);
   let recognition = null;
   let listening = false;
   let pendingTicketId = null; // id de gasto cuya foto se está adjuntando
@@ -34,7 +34,6 @@
 
       <button class="toggle-manual" id="toggleManual">o captúralo a mano →</button>
       <form class="manual" id="manualForm">
-        <div id="editingNotice" style="display:none; font-size:11px; color: var(--gold); font-family:'IBM Plex Mono',monospace; text-transform:uppercase; letter-spacing:1px;">Editando gasto — <a href="#" id="cancelEdit" style="color:var(--red);">cancelar</a></div>
         <div class="field"><label id="mMontoLabel">Monto</label><input type="number" step="0.01" id="mMonto" placeholder="0.00" inputmode="decimal"></div>
         <div class="field"><label>Concepto</label><input type="text" id="mConcepto" placeholder="¿En qué gastaste?"></div>
         <div class="field"><label>Categoría específica <span style="text-transform:none;letter-spacing:0;">(se sugiere sola, edítala si quieres)</span></label>
@@ -86,7 +85,7 @@
         <button id="nextMonth" class="navbtn">›</button>
       </div>
 
-      <input type="text" id="searchInput" class="search-input" placeholder="Buscar por concepto o categoría…">
+      <input type="text" id="searchInput" class="search-input" placeholder="Buscar: concepto, banco, tarjeta, monto…">
 
       <div id="lineItems"></div>
       <div class="total-row"><span>GASTOS</span><span id="totalAmt">$0.00</span></div>
@@ -119,34 +118,6 @@
     pendingTicketId = null;
   }
 
-  function exitEditMode() {
-    editingId = null;
-    document.getElementById('editingNotice').style.display = 'none';
-    document.getElementById('saveBtn').textContent = 'Guardar gasto';
-  }
-
-  function enterEditMode(id) {
-    const exp = App.expenses.find((x) => x.id === id);
-    if (!exp) return;
-    editingId = id;
-    document.getElementById('manualForm').classList.add('open');
-    document.getElementById('mMonto').value = exp.monto;
-    document.getElementById('mConcepto').value = exp.concepto;
-    document.getElementById('mCategoria').value = exp.categoria;
-    document.getElementById('mFecha').value = exp.fecha;
-    document.getElementById('mMedioPago').value = exp.medioPago === 'efectivo' ? 'efectivo' : (exp.medioPago === 'tarjeta_credito' ? 'tarjeta_credito' : 'banco');
-    document.getElementById('mBanco').value = exp.banco || '';
-    toggleMedioPagoFields();
-    if (exp.medioPago === 'tarjeta_credito') populateTarjetaSelect(exp.tarjetaId);
-    document.getElementById('mRecurrente').checked = false;
-    document.getElementById('mMSI').checked = false;
-    document.getElementById('msiFields').style.display = 'none';
-    document.getElementById('mMontoLabel').textContent = 'Monto';
-    document.getElementById('editingNotice').style.display = 'block';
-    document.getElementById('saveBtn').textContent = 'Guardar cambios';
-    document.getElementById('manualForm').scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }
-
   function refineGroupInBackground(id, categoria) {
     if (Categories.quickGroup(categoria)) return;
     AI.inferGroup(categoria).then(async (g) => {
@@ -172,8 +143,9 @@
       sel.innerHTML = '<option value="">— agrega una tarjeta primero —</option>';
       return;
     }
-    sel.innerHTML = App.tarjetas.map((t) => `<option value="${t.id}">${t.nombre}</option>`).join('');
-    if (selectedId) sel.value = selectedId;
+    // opción vacía primero: la tarjeta SIEMPRE se elige a mano, nunca se autoselecciona
+    sel.innerHTML = '<option value="">— elige una tarjeta —</option>' + App.tarjetas.map((t) => `<option value="${t.id}">${PayFields.esc(t.nombre)}</option>`).join('');
+    sel.value = selectedId ? String(selectedId) : '';
   }
 
   async function addExpense(exp) {
@@ -303,7 +275,6 @@
     document.getElementById('toggleManual').onclick = () => {
       document.getElementById('manualForm').classList.toggle('open');
     };
-    document.getElementById('cancelEdit').onclick = (ev) => { ev.preventDefault(); exitEditMode(); resetForm(); };
 
     document.getElementById('manualForm').onsubmit = async (e) => {
       e.preventDefault();
@@ -326,21 +297,6 @@
           const tSel = document.getElementById('mTarjeta').value;
           if (!tSel) { setStatus('Selecciona con qué tarjeta pagaste (o agrega una nueva primero).', 'err'); return; }
           tarjetaId = parseFloat(tSel);
-        }
-
-        if (editingId) {
-          const exp = App.expenses.find((x) => x.id === editingId);
-          if (exp) {
-            exp.monto = monto; exp.concepto = concepto; exp.categoria = categoria; exp.grupo = grupo; exp.fecha = fecha;
-            exp.medioPago = medioPago; exp.banco = banco; exp.tarjetaId = tarjetaId;
-            await DB.Store.put('expenses', exp);
-            refineGroupInBackground(editingId, categoria);
-          }
-          exitEditMode();
-          resetForm();
-          renderList();
-          setStatus('Cambios guardados ✓', 'ok');
-          return;
         }
 
         if (document.getElementById('mMSI').checked) {
@@ -441,18 +397,26 @@
     };
   }
 
-  // ---- Importar captura de pantalla (varios gastos a la vez) ----
+  // ---- Importar captura de pantalla (varios movimientos a la vez) ----
+  // Flujo: (1) "Importar captura" pregunta qué contiene la imagen (gastos o ingresos) y
+  // a qué banco/tarjeta pertenecen; (2) se elige la imagen; (3) se revisan los renglones
+  // detectados, cada uno editable antes de guardar; (4) se confirman los seleccionados.
+  let importSetup = { tipo: 'gasto', medioPago: 'banco', banco: null, tarjetaId: null };
+
   function daysBetween(fechaA, fechaB) {
     const [y1, m1, d1] = fechaA.split('-').map(Number);
     const [y2, m2, d2] = fechaB.split('-').map(Number);
     return Math.round((Date.UTC(y1, m1 - 1, d1) - Date.UTC(y2, m2 - 1, d2)) / 86400000);
   }
 
-  function isDuplicateExpense(item) {
-    return App.expenses.some((e) => {
+  // Un renglón es "probable duplicado" si ya hay un gasto/ingreso del mismo tipo con el
+  // mismo monto, fecha a ±1 día y concepto parecido.
+  function isDuplicateItem(item) {
+    const lista = item.tipo === 'ingreso' ? App.incomes : App.expenses;
+    return lista.some((e) => {
       if (!e || !Dates.isValidDate(e.fecha)) return false;
       if (Math.abs(Number(e.monto) - Number(item.monto)) > 0.01) return false;
-      if (Math.abs(daysBetween(e.fecha, item.fecha)) > 1) return false;
+      if (!Dates.isValidDate(item.fecha) || Math.abs(daysBetween(e.fecha, item.fecha)) > 1) return false;
       const a = (e.concepto || '').toLowerCase().trim();
       const b = (item.concepto || '').toLowerCase().trim();
       if (!a || !b) return false;
@@ -460,87 +424,322 @@
     });
   }
 
-  // Resuelve la categoría/grupo de cada renglón detectado. Las categorías que ya se
-  // conocen (base fija, agregadas por el usuario, o coinciden con un comercio) se
-  // resuelven al instante sin red; las genuinamente nuevas se juntan en UNA sola
-  // llamada de clasificación por lote en vez de una por renglón.
-  async function prepareImportItems(rawItems) {
+  function pagoLabel(it) {
+    if (it.tipo === 'ingreso') return it.banco || 'sin banco';
+    if (it.medioPago === 'tarjeta_credito') return Tarjetas.tarjetaNombre(it.tarjetaId) || 'sin tarjeta';
+    if (it.medioPago === 'efectivo') return 'Efectivo';
+    return it.banco || 'sin banco';
+  }
+
+  function itemMeta(it) {
+    return `${Dates.fmtMoney(it.monto)} · ${it.fecha} · ${it.tipo === 'ingreso' ? 'Ingreso' : it.categoria} · ${pagoLabel(it)}`;
+  }
+
+  // Categoría/grupo de cada gasto detectado: lo que ya se conoce se resuelve al instante
+  // (sin red); las categorías genuinamente nuevas se clasifican DESPUÉS, en una sola
+  // llamada por lote, al confirmar (así también cubre las que el usuario edite a mano).
+  function prepareImportItems(rawItems) {
+    const s = importSetup;
     const items = rawItems.map((r) => ({
+      tipo: s.tipo,
       monto: typeof r.monto === 'number' ? r.monto : (parseFloat(r.monto) || 0),
       fecha: Dates.isValidDate(r.fecha) ? r.fecha : Dates.todayISO(),
-      concepto: (r.concepto || '').toString().trim() || 'Gasto sin descripción',
+      concepto: (r.concepto || '').toString().trim() || (s.tipo === 'ingreso' ? 'Ingreso' : 'Gasto sin descripción'),
+      medioPago: s.tipo === 'ingreso' ? null : s.medioPago,
+      banco: (s.tipo === 'ingreso' || s.medioPago === 'banco') ? s.banco : null,
+      tarjetaId: (s.tipo === 'gasto' && s.medioPago === 'tarjeta_credito') ? s.tarjetaId : null,
+      categoria: null,
+      grupo: null,
+      open: false,
     })).filter((r) => r.monto > 0);
 
-    const nuevas = new Set();
     items.forEach((it) => {
-      const guess = Categories.localGuessCategoria(it.concepto);
-      it.categoria = guess || it.concepto;
-      it.grupo = Categories.quickGroup(it.categoria);
-      if (!it.grupo) nuevas.add(it.categoria);
+      if (it.tipo === 'gasto') {
+        it.categoria = Categories.localGuessCategoria(it.concepto) || it.concepto;
+        it.grupo = Categories.quickGroup(it.categoria);
+      }
+      it.isDup = isDuplicateItem(it);
     });
-
-    if (nuevas.size) {
-      const mapa = await AI.inferGroupsBatch([...nuevas]);
-      items.forEach((it) => { if (!it.grupo) it.grupo = mapa[it.categoria] || 'Otros'; });
-    }
-
-    items.forEach((it) => { it.isDup = isDuplicateExpense(it); });
     importItems = items;
   }
 
-  function renderImportPanel() {
-    const panel = document.getElementById('importPanel');
-    if (!panel) return;
-    if (!importItems.length) { panel.innerHTML = ''; return; }
+  function renderImportSetup() {
+    const panel = $('importPanel');
     panel.innerHTML = `
-      <div class="section-label" style="margin-top:18px;">Detectado en tu captura (${importItems.length} ${importItems.length === 1 ? 'renglón' : 'renglones'})</div>
-      ${importItems.map((it, idx) => `
-        <div class="import-row ${it.isDup ? 'dup' : ''}">
-          <input type="checkbox" class="importCheck" data-idx="${idx}" ${it.isDup ? '' : 'checked'}>
-          <div class="info">${it.concepto}<span class="meta">${Dates.fmtMoney(it.monto)} · ${it.fecha} · ${it.categoria}</span></div>
-          ${it.isDup ? '<span class="dup-tag">Ya registrado</span>' : ''}
+      <div class="section-label" style="margin-top:18px;">Importar captura</div>
+      <div class="hint" style="margin-bottom:10px;">Dime a qué cuenta o tarjeta pertenecen los movimientos de la imagen. Se aplicará a todos y después podrás ajustar renglón por renglón antes de guardar.</div>
+      <div class="import-setup">
+        <div class="field"><label>¿Qué contiene la imagen?</label>
+          <select id="impTipo">
+            <option value="gasto">Gastos</option>
+            <option value="ingreso">Ingresos</option>
+          </select>
         </div>
-      `).join('')}
-      <button class="save-btn gold" id="btnConfirmImport" style="margin-top:10px;">Importar seleccionados</button>
-      <button class="toggle-manual" id="btnCancelImport">cancelar</button>
+        <div id="impPay"></div>
+        <button class="save-btn gold" id="impChoose">Elegir imagen</button>
+        <button class="toggle-manual" id="impCancel">cancelar</button>
+      </div>
     `;
-    document.getElementById('btnCancelImport').onclick = () => { importItems = []; renderImportPanel(); setStatus(''); };
-    document.getElementById('btnConfirmImport').onclick = async () => {
-      const checks = panel.querySelectorAll('.importCheck');
-      const seleccionados = [];
-      checks.forEach((c) => { if (c.checked) seleccionados.push(importItems[Number(c.dataset.idx)]); });
-      for (const it of seleccionados) {
-        await addExpense({ monto: it.monto, concepto: it.concepto, categoria: it.categoria, grupo: it.grupo, fecha: it.fecha, medioPago: 'banco' });
+    $('impTipo').value = importSetup.tipo;
+    let tipoActual = importSetup.tipo;
+
+    const mountPay = () => {
+      const opts = { soloBanco: tipoActual === 'ingreso', newCard: true };
+      $('impPay').innerHTML = PayFields.html('imp', opts);
+      PayFields.wire('imp', opts);
+      PayFields.set('imp', importSetup, opts);
+    };
+    mountPay();
+
+    $('impTipo').onchange = () => {
+      // conserva lo ya capturado antes de redibujar los campos según el tipo
+      const prev = PayFields.get('imp', { soloBanco: tipoActual === 'ingreso' });
+      if (tipoActual === 'ingreso') importSetup.banco = prev.banco;
+      else Object.assign(importSetup, prev);
+      tipoActual = $('impTipo').value;
+      importSetup.tipo = tipoActual;
+      if (tipoActual === 'gasto' && !importSetup.medioPago) importSetup.medioPago = 'banco';
+      mountPay();
+    };
+
+    $('impCancel').onclick = () => { importItems = []; panel.innerHTML = ''; setStatus(''); };
+    $('impChoose').onclick = () => {
+      const tipo = $('impTipo').value;
+      const pay = PayFields.get('imp', { soloBanco: tipo === 'ingreso' });
+      if (tipo === 'gasto' && pay.medioPago === 'tarjeta_credito' && !pay.tarjetaId) {
+        setStatus('Elige con qué tarjeta se pagaron estos gastos (o agrega una nueva).', 'err');
+        return;
       }
-      importItems = [];
-      renderImportPanel();
-      renderList();
-      setStatus(`${seleccionados.length} gasto(s) importado(s) ✓`, 'ok');
+      setStatus('');
+      importSetup = { tipo, medioPago: pay.medioPago || 'banco', banco: pay.banco, tarjetaId: pay.tarjetaId };
+      $('importFileInput').click();
     };
   }
 
+  function rowHTML(idx) {
+    const it = importItems[idx];
+    return `
+      <div class="import-row ${it.isDup ? 'dup' : ''}" id="impRow${idx}">
+        <input type="checkbox" class="importCheck" data-idx="${idx}" ${it.isDup ? '' : 'checked'}>
+        <div class="info"><span class="titulo">${PayFields.esc(it.concepto)}</span><span class="meta">${PayFields.esc(itemMeta(it))}</span></div>
+        <span class="dup-tag" style="${it.isDup ? '' : 'display:none;'}">Ya registrado</span>
+        <button type="button" class="icon-btn" data-edit="${idx}" title="Editar este renglón">✎</button>
+      </div>
+      ${it.open ? editorHTML(idx) : ''}
+    `;
+  }
+
+  function editorHTML(idx) {
+    const it = importItems[idx];
+    const p = 'r' + idx;
+    const ingreso = it.tipo === 'ingreso';
+    return `
+      <div class="import-edit" id="impEdit${idx}">
+        <div class="field"><label>Tipo</label>
+          <select id="${p}Tipo"><option value="gasto">Gasto</option><option value="ingreso">Ingreso</option></select>
+        </div>
+        <div class="field"><label>Fecha</label><input type="date" id="${p}Fecha"></div>
+        <div class="field"><label>Concepto</label><input type="text" id="${p}Concepto"></div>
+        ${PayFields.html(p, { soloBanco: ingreso })}
+        <div class="field"><label>Monto</label><input type="number" step="0.01" inputmode="decimal" id="${p}Monto"></div>
+        ${ingreso ? '' : `<div class="field"><label>Categoría específica</label>
+          <input type="text" id="${p}Cat" autocomplete="off">
+          <div class="suggestions" id="${p}CatSug"></div></div>`}
+      </div>
+    `;
+  }
+
+  function refreshSummary(idx) {
+    const it = importItems[idx];
+    const row = $('impRow' + idx);
+    if (!row) return;
+    it.isDup = isDuplicateItem(it);
+    row.querySelector('.titulo').textContent = it.concepto;
+    row.querySelector('.meta').textContent = itemMeta(it);
+    row.classList.toggle('dup', it.isDup);
+    row.querySelector('.dup-tag').style.display = it.isDup ? '' : 'none';
+  }
+
+  function wireRowEditor(idx) {
+    const it = importItems[idx];
+    const p = 'r' + idx;
+    const ingreso = it.tipo === 'ingreso';
+    const opts = { soloBanco: ingreso, onChange: (v) => {
+      if (!ingreso) it.medioPago = v.medioPago;
+      it.banco = v.banco;
+      it.tarjetaId = v.tarjetaId;
+      refreshSummary(idx);
+    } };
+
+    $(p + 'Tipo').value = it.tipo;
+    $(p + 'Fecha').value = it.fecha;
+    $(p + 'Concepto').value = it.concepto;
+    $(p + 'Monto').value = it.monto;
+    PayFields.wire(p, opts);
+    PayFields.set(p, it, opts);
+
+    $(p + 'Tipo').onchange = () => {
+      const nuevo = $(p + 'Tipo').value;
+      if (nuevo === it.tipo) return;
+      it.tipo = nuevo;
+      if (nuevo === 'ingreso') {
+        it.medioPago = null; it.tarjetaId = null; it.categoria = null; it.grupo = null;
+      } else {
+        it.medioPago = 'banco';
+        it.categoria = Categories.localGuessCategoria(it.concepto) || it.concepto;
+        it.grupo = Categories.quickGroup(it.categoria);
+      }
+      it.isDup = isDuplicateItem(it);
+      renderRow(idx);
+    };
+    $(p + 'Fecha').addEventListener('input', () => { if (Dates.isValidDate($(p + 'Fecha').value)) { it.fecha = $(p + 'Fecha').value; refreshSummary(idx); } });
+    $(p + 'Concepto').addEventListener('input', () => { it.concepto = $(p + 'Concepto').value.trim() || it.concepto; refreshSummary(idx); });
+    $(p + 'Monto').addEventListener('input', () => { it.monto = parseFloat($(p + 'Monto').value) || 0; refreshSummary(idx); });
+    if (!ingreso) {
+      const cat = $(p + 'Cat');
+      cat.value = it.categoria || '';
+      const showCats = () => PayFields.renderSuggestions(p + 'CatSug', Categories.suggestCategorias(cat.value), (v) => {
+        cat.value = v; it.categoria = v; it.grupo = Categories.quickGroup(v); refreshSummary(idx);
+      });
+      cat.addEventListener('input', () => {
+        it.categoria = cat.value.trim() || 'Otros';
+        it.grupo = Categories.quickGroup(it.categoria); // si es nueva, se clasifica al confirmar
+        refreshSummary(idx);
+        showCats();
+      });
+      cat.addEventListener('focus', showCats);
+    }
+  }
+
+  function renderRow(idx) {
+    const wrap = $('impItem' + idx);
+    if (!wrap) return;
+    const checked = wrap.querySelector('.importCheck') ? wrap.querySelector('.importCheck').checked : !importItems[idx].isDup;
+    wrap.innerHTML = rowHTML(idx);
+    wrap.querySelector('.importCheck').checked = checked;
+    bindRow(idx);
+  }
+
+  function bindRow(idx) {
+    const wrap = $('impItem' + idx);
+    wrap.querySelector('[data-edit]').onclick = () => { importItems[idx].open = !importItems[idx].open; renderRow(idx); };
+    if (importItems[idx].open) wireRowEditor(idx);
+  }
+
+  function renderImportReview() {
+    const panel = $('importPanel');
+    if (!importItems.length) { panel.innerHTML = ''; return; }
+    const s = importSetup;
+    const base = s.tipo === 'ingreso' ? `Ingresos${s.banco ? ' · ' + s.banco : ''}`
+      : (s.medioPago === 'tarjeta_credito' ? `Gastos · tarjeta ${Tarjetas.tarjetaNombre(s.tarjetaId) || ''}`
+        : (s.medioPago === 'efectivo' ? 'Gastos · efectivo' : `Gastos · banco${s.banco ? ' ' + s.banco : ''}`));
+    panel.innerHTML = `
+      <div class="section-label" style="margin-top:18px;">Detectado en tu captura (${importItems.length} ${importItems.length === 1 ? 'renglón' : 'renglones'})</div>
+      <div class="import-summary">Se aplicó a todos: ${PayFields.esc(base)}. Toca ✎ en un renglón para cambiar fecha, concepto, monto, categoría, banco o tarjeta antes de guardar.</div>
+      ${importItems.map((_, idx) => `<div class="import-item" id="impItem${idx}">${rowHTML(idx)}</div>`).join('')}
+      <button class="save-btn gold" id="btnConfirmImport" style="margin-top:10px; width:100%;">Importar seleccionados</button>
+      <button class="toggle-manual" id="btnCancelImport">cancelar</button>
+    `;
+    importItems.forEach((_, idx) => bindRow(idx));
+    $('btnCancelImport').onclick = () => { importItems = []; renderImportReview(); setStatus(''); };
+    $('btnConfirmImport').onclick = confirmImport;
+  }
+
+  async function addIncomeRecord(it) {
+    const rec = { id: newId(), monto: Number(it.monto) || 0, concepto: it.concepto || 'Ingreso', fecha: it.fecha, recurrenteId: null, banco: it.banco || null };
+    App.incomes.unshift(rec);
+    await DB.Store.put('incomes', rec);
+  }
+
+  function flagRow(idx, msg) {
+    importItems[idx].open = true;
+    renderRow(idx);
+    setStatus(msg, 'err');
+    const el = $('impItem' + idx);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+
+  async function confirmImport() {
+    const panel = $('importPanel');
+    const sel = [];
+    panel.querySelectorAll('.importCheck').forEach((c) => { if (c.checked) sel.push(Number(c.dataset.idx)); });
+    if (!sel.length) { setStatus('No seleccionaste ningún renglón para importar.', 'err'); return; }
+
+    for (const idx of sel) {
+      const it = importItems[idx];
+      if (!(it.monto > 0)) { flagRow(idx, `Revisa el monto de "${it.concepto}".`); return; }
+      if (!Dates.isValidDate(it.fecha)) { flagRow(idx, `Revisa la fecha de "${it.concepto}".`); return; }
+      if (it.tipo === 'gasto' && it.medioPago === 'tarjeta_credito' && !it.tarjetaId) { flagRow(idx, `Elige la tarjeta de "${it.concepto}".`); return; }
+    }
+
+    const btn = $('btnConfirmImport');
+    btn.disabled = true;
+    try {
+      // categorías genuinamente nuevas de los gastos seleccionados: UNA sola llamada por lote
+      const nuevas = new Set();
+      sel.forEach((idx) => {
+        const it = importItems[idx];
+        if (it.tipo !== 'gasto') return;
+        it.categoria = (it.categoria || '').trim() || 'Otros';
+        if (!it.grupo) it.grupo = Categories.quickGroup(it.categoria);
+        if (!it.grupo) nuevas.add(it.categoria);
+      });
+      if (nuevas.size) {
+        const mapa = await AI.inferGroupsBatch([...nuevas]);
+        sel.forEach((idx) => { const it = importItems[idx]; if (it.tipo === 'gasto' && !it.grupo) it.grupo = mapa[it.categoria] || 'Otros'; });
+      }
+
+      let gastos = 0, ingresos = 0;
+      for (const idx of sel) {
+        const it = importItems[idx];
+        if (it.banco) await Banks.registerBank(it.banco);
+        if (it.tipo === 'ingreso') { await addIncomeRecord(it); ingresos++; }
+        else {
+          await addExpense({ monto: it.monto, concepto: it.concepto, categoria: it.categoria, grupo: it.grupo, fecha: it.fecha, medioPago: it.medioPago, banco: it.banco, tarjetaId: it.tarjetaId });
+          gastos++;
+        }
+      }
+      importItems = [];
+      renderImportReview();
+      renderList();
+      const partes = [];
+      if (gastos) partes.push(`${gastos} gasto(s)`);
+      if (ingresos) partes.push(`${ingresos} ingreso(s)`);
+      setStatus(`${partes.join(' y ')} importado(s) ✓`, 'ok');
+    } catch (err) {
+      btn.disabled = false;
+      setStatus('No se pudo guardar la importación: ' + (err && err.message ? err.message : err), 'err');
+    }
+  }
+
   function wireImport() {
-    document.getElementById('importBtn').onclick = () => document.getElementById('importFileInput').click();
-    document.getElementById('importFileInput').onchange = async (e) => {
+    $('importBtn').onclick = () => {
+      if (importItems.length && !confirm('Tienes una importación sin guardar. ¿Descartarla y empezar otra?')) return;
+      importItems = [];
+      importSetup.tarjetaId = null; // la tarjeta siempre se elige a mano, nunca se hereda
+      renderImportSetup();
+      $('importPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
+    $('importFileInput').onchange = async (e) => {
       const file = e.target.files[0];
       e.target.value = '';
       if (!file) return;
       setStatus('Leyendo captura…');
-      document.getElementById('importBtn').classList.add('busy');
+      $('importBtn').classList.add('busy');
       try {
         const dataUrl = await resizeImage(file, 1400);
-        const rawItems = await AI.importarCaptura(dataUrl);
+        const rawItems = await AI.importarCaptura(dataUrl, importSetup.tipo);
         if (!rawItems.length) {
-          setStatus('No se detectó ningún gasto en la imagen. Intenta con otra captura.', 'err');
+          setStatus(`No se detectó ningún ${importSetup.tipo === 'ingreso' ? 'ingreso' : 'gasto'} en la imagen. Intenta con otra captura.`, 'err');
           return;
         }
-        await prepareImportItems(rawItems);
-        renderImportPanel();
-        setStatus(`${importItems.length} gasto(s) detectado(s) — revisa y confirma abajo.`, 'ok');
+        prepareImportItems(rawItems);
+        renderImportReview();
+        setStatus(`${importItems.length} renglón(es) detectado(s) — revisa, edita lo que haga falta y confirma abajo.`, 'ok');
       } catch (err) {
         setStatus('No se pudo leer la captura: ' + (err && err.message ? err.message : err), 'err');
       } finally {
-        document.getElementById('importBtn').classList.remove('busy');
+        $('importBtn').classList.remove('busy');
       }
     };
   }
@@ -607,32 +806,55 @@
     });
   }
 
+  // ¿El gasto coincide con lo que escribió el usuario en el buscador? Busca en concepto,
+  // categoría, grupo, banco, tarjeta (nombre y banco desde el que se paga), medio de pago
+  // y monto (con o sin comas/signo $, coincidencia parcial).
+  function expenseMatches(e, query) {
+    if (!query) return true;
+    const tarjeta = e.medioPago === 'tarjeta_credito' ? App.tarjetas.find((t) => t.id === e.tarjetaId) : null;
+    const medio = e.medioPago === 'efectivo' ? 'efectivo' : (e.medioPago === 'tarjeta_credito' ? 'tarjeta de crédito' : 'banco');
+    const text = [e.concepto, e.categoria, e.grupo, e.banco, tarjeta && tarjeta.nombre, tarjeta && tarjeta.bancoPago, medio]
+      .map((x) => (x || '').toString().toLowerCase()).join(' | ');
+    if (text.includes(query)) return true;
+    const num = query.replace(/[$,\s]/g, '');
+    if (num && /^\d*\.?\d+$|^\d+\.$/.test(num)) return Number(e.monto).toFixed(2).includes(num);
+    return false;
+  }
+
   function renderList() {
     const container = document.getElementById('lineItems');
     if (!container) return;
     const query = (document.getElementById('searchInput').value || '').trim().toLowerCase();
     const monthExpenses = App.expenses.filter((e) => {
       if (!e || !Dates.isValidDate(e.fecha) || Dates.monthOf(e.fecha) !== App.currentMonth) return false;
-      if (!query) return true;
-      return (e.concepto || '').toLowerCase().includes(query) || (e.categoria || '').toLowerCase().includes(query) || (e.grupo || '').toLowerCase().includes(query);
+      return expenseMatches(e, query);
     }).sort((a, b) => b.fecha.localeCompare(a.fecha) || b.id - a.id);
 
-    container.innerHTML = monthExpenses.length ? monthExpenses.map((e) => `
-      <div class="line-item">
-        <div class="desc">${e.recurrenteId ? '🔁 ' : ''}${e.msiGroupId ? '💳 ' : ''}${e.medioPago === 'efectivo' ? '💵 ' : ''}${e.concepto}<span class="cat">${e.grupo || 'Otros'} → ${e.categoria} · ${e.fecha}${e.medioPago === 'tarjeta_credito' ? ' · ' + (Tarjetas.tarjetaNombre(e.tarjetaId) || 'tarjeta') : ''}${e.medioPago === 'banco' && e.banco ? ' · ' + e.banco : ''}</span></div>
+    // Cada renglón: fecha, concepto y luego banco/tarjeta · grupo → categoría.
+    container.innerHTML = monthExpenses.length ? monthExpenses.map((e) => {
+      const pago = e.medioPago === 'tarjeta_credito' ? (Tarjetas.tarjetaNombre(e.tarjetaId) || 'tarjeta')
+        : (e.medioPago === 'efectivo' ? 'Efectivo' : (e.banco || ''));
+      const sub = [pago, `${e.grupo || 'Otros'} → ${e.categoria}`].filter(Boolean).join(' · ');
+      return `
+      <div class="line-item tappable" data-id="${e.id}">
+        <div class="desc"><span class="dt">${PayFields.esc(e.fecha)}</span>${e.recurrenteId ? '🔁 ' : ''}${e.msiGroupId ? '💳 ' : ''}${e.medioPago === 'efectivo' ? '💵 ' : ''}${PayFields.esc(e.concepto)}<span class="cat">${PayFields.esc(sub)}</span></div>
         <div class="amt">${Dates.fmtMoney(e.monto)}</div>
         <div class="actions">
           ${e.hasFoto ? `<button class="icon-btn foto" data-id="${e.id}" title="Ver ticket">📷</button>` : ''}
-          <button class="icon-btn edit" data-id="${e.id}" title="Editar">✎</button>
           <button class="icon-btn del" data-id="${e.id}" title="Eliminar">✕</button>
         </div>
-      </div>
-    `).join('') : `<div class="empty">${query ? 'Sin resultados para tu búsqueda.' : 'Aún no hay gastos registrados este mes.'}</div>`;
+      </div>`;
+    }).join('') : `<div class="empty">${query ? 'Sin resultados para tu búsqueda.' : 'Aún no hay gastos registrados este mes.'}</div>`;
 
     const total = monthExpenses.reduce((s, e) => s + Number(e.monto), 0);
     document.getElementById('totalAmt').textContent = Dates.fmtMoney(total);
 
-    container.querySelectorAll('.edit').forEach((b) => { b.onclick = () => enterEditMode(Number(b.dataset.id) || parseFloat(b.dataset.id)); });
+    container.querySelectorAll('.line-item.tappable').forEach((row) => {
+      row.onclick = (ev) => {
+        if (ev.target.closest('button')) return; // los botones tienen su propia acción
+        Detalle.open('gasto', parseFloat(row.dataset.id));
+      };
+    });
     container.querySelectorAll('.foto').forEach((b) => { b.onclick = () => openPhotoModal(parseFloat(b.dataset.id)); });
     container.querySelectorAll('.del').forEach((b) => {
       b.onclick = async () => {

@@ -18,21 +18,26 @@ function parseDataUrl(dataUrl) {
 module.exports = async (req, res) => {
   if (req.method !== 'POST') return sendJSON(res, 405, { error: 'Método no permitido' });
   try {
-    const { imagen } = req.body || {};
+    const { imagen, tipo } = req.body || {};
+    const esIngreso = tipo === 'ingreso';
     const parsed = parseDataUrl(imagen);
     if (!parsed) return sendJSON(res, 400, { error: 'Falta "imagen" en formato dataURL válido' });
 
     const hoy = new Date().toISOString().slice(0, 10);
     const text = await callClaude({
       maxTokens: 2000,
-      system: 'Extraes listas de gastos de capturas de pantalla (p. ej. historial de viajes de Uber/Didi, historial de pedidos, estados de cuenta) para una app de finanzas personales en México. Respondes ÚNICAMENTE JSON válido, sin texto adicional ni markdown.',
+      system: esIngreso
+        ? 'Extraes listas de ingresos (depósitos, abonos, nómina, transferencias recibidas, ventas) de capturas de pantalla o estados de cuenta para una app de finanzas personales en México. Respondes ÚNICAMENTE JSON válido, sin texto adicional ni markdown.'
+        : 'Extraes listas de gastos de capturas de pantalla (p. ej. historial de viajes de Uber/Didi, historial de pedidos, estados de cuenta) para una app de finanzas personales en México. Respondes ÚNICAMENTE JSON válido, sin texto adicional ni markdown.',
       messages: [{
         role: 'user',
         content: [
           { type: 'image', source: { type: 'base64', media_type: parsed.mediaType, data: parsed.base64 } },
           {
             type: 'text',
-            text: `Esta imagen es una captura de pantalla que puede contener uno o varios gastos (p. ej. una lista de viajes, pedidos o transacciones). Extrae CADA gasto que aparezca por separado. Devuelve exactamente este JSON:\n{"gastos": [{"monto": <número pagado, sin símbolo de moneda>, "fecha": "<YYYY-MM-DD si aparece o se puede inferir, si no null>", "concepto": "<descripción corta, p. ej. nombre del comercio, viaje o destino>"}]}\nSi solo hay un gasto, regresa un arreglo con un solo elemento. Si una fecha solo trae día y mes (sin año), infiere el año usando ${hoy} como referencia de hoy (asume el año más reciente que tenga sentido, sin pasarte de hoy salvo que el mes/día ya haya ocurrido este año). Si el monto o la fecha de un renglón no son legibles, omite ese renglón por completo (no inventes datos). Si no se detecta ningún gasto, regresa {"gastos": []}.`,
+            text: esIngreso
+              ? `Esta imagen es una captura de pantalla que puede contener uno o varios INGRESOS (depósitos, abonos, nómina, transferencias recibidas). Extrae CADA ingreso que aparezca por separado e ignora los cargos o gastos. Por compatibilidad la lista se llama "gastos" aunque aquí contenga ingresos. Devuelve exactamente este JSON:\n{"gastos": [{"monto": <número recibido, sin símbolo de moneda>, "fecha": "<YYYY-MM-DD si aparece o se puede inferir, si no null>", "concepto": "<descripción corta, p. ej. quién o qué lo originó>"}]}\nSi una fecha solo trae día y mes (sin año), infiere el año usando ${hoy} como referencia de hoy (asume el año más reciente que tenga sentido, sin pasarte de hoy salvo que el mes/día ya haya ocurrido este año). Si el monto o la fecha de un renglón no son legibles, omite ese renglón por completo (no inventes datos). Si no se detecta ningún ingreso, regresa {"gastos": []}.`
+              : `Esta imagen es una captura de pantalla que puede contener uno o varios gastos (p. ej. una lista de viajes, pedidos o transacciones). Extrae CADA gasto que aparezca por separado. Devuelve exactamente este JSON:\n{"gastos": [{"monto": <número pagado, sin símbolo de moneda>, "fecha": "<YYYY-MM-DD si aparece o se puede inferir, si no null>", "concepto": "<descripción corta, p. ej. nombre del comercio, viaje o destino>"}]}\nSi solo hay un gasto, regresa un arreglo con un solo elemento. Si una fecha solo trae día y mes (sin año), infiere el año usando ${hoy} como referencia de hoy (asume el año más reciente que tenga sentido, sin pasarte de hoy salvo que el mes/día ya haya ocurrido este año). Si el monto o la fecha de un renglón no son legibles, omite ese renglón por completo (no inventes datos). Si no se detecta ningún gasto, regresa {"gastos": []}.`,
           },
         ],
       }],

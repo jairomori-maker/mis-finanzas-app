@@ -99,14 +99,21 @@
     const monthIncomes = App.incomes.filter((i) => i && Dates.isValidDate(i.fecha) && Dates.monthOf(i.fecha) === App.currentMonth)
       .sort((a, b) => b.fecha.localeCompare(a.fecha));
     const container = document.getElementById('incomeItems');
+    // Cada renglón: fecha, concepto y banco. Al tocarlo se abre el detalle para editarlo.
     container.innerHTML = monthIncomes.length ? monthIncomes.map((i) => `
-      <div class="line-item">
-        <div class="desc">${i.recurrenteId ? '🔁 ' : ''}${i.concepto}<span class="cat">${i.fecha}${i.banco ? ' · ' + i.banco : ''}</span></div>
+      <div class="line-item tappable" data-id="${i.id}">
+        <div class="desc"><span class="dt">${PayFields.esc(i.fecha)}</span>${i.recurrenteId ? '🔁 ' : ''}${PayFields.esc(i.concepto)}${i.banco ? `<span class="cat">${PayFields.esc(i.banco)}</span>` : ''}</div>
         <div class="amt">${Dates.fmtMoney(i.monto)}</div>
         <div class="actions"><button class="icon-btn del" data-id="${i.id}" title="Eliminar">✕</button></div>
       </div>
     `).join('') : '<div class="empty">Sin ingresos este mes.</div>';
 
+    container.querySelectorAll('.line-item.tappable').forEach((row) => {
+      row.onclick = (ev) => {
+        if (ev.target.closest('button')) return;
+        Detalle.open('ingreso', parseFloat(row.dataset.id));
+      };
+    });
     container.querySelectorAll('.del').forEach((b) => {
       b.onclick = async () => {
         const id = parseFloat(b.dataset.id);
